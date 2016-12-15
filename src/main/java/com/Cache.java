@@ -5,6 +5,13 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.Properties;
 
+/**
+ * in - set key objects received from data base (memory)
+ * out - set key objects received from in when sizeIn = maxSizeIn (file system)
+ * main - set key objects received from out when user try get key
+ * @param <K> key
+ * @param <V> value
+ */
 public class Cache<K, V> {
 
     private HashMap<K,V> wordsToMemory;
@@ -85,22 +92,24 @@ public class Cache<K, V> {
     }
 
     public void putValueFormDB(K key, V value){
-        if(value == null){
+        if (value == null) {
             throw new NullPointerException("you want put to cache value which is null");
         }
-        if(maxSizeIn > sizeIn){
-            putValueToMemory(key, value, in);
-            sizeIn++;
-        }else {
-            // супер медленный способ найти последний эелемент
-            K oldKey = (K) in.toArray()[in.size()-1];
-            if(oldKey != null){
-                addFileToSystem(oldKey);
-                in.remove(oldKey);
-                wordsToMemory.remove(oldKey);
-                sizeIn--;
+        synchronized (this) {
+            if (maxSizeIn > sizeIn) {
                 putValueToMemory(key, value, in);
                 sizeIn++;
+            } else {
+                // супер медленный способ найти последний эелемент
+                K oldKey = (K) in.toArray()[in.size() - 1];
+                if (oldKey != null) {
+                    addFileToSystem(oldKey);
+                    in.remove(oldKey);
+                    wordsToMemory.remove(oldKey);
+                    sizeIn--;
+                    putValueToMemory(key, value, in);
+                    sizeIn++;
+                }
             }
         }
     }
@@ -133,27 +142,31 @@ public class Cache<K, V> {
     }
 
     private void moveValueFromFileToMemory(K key, V value){
-        main.add(key);
-        if(maxSizeMain > sizeMain){
-            putValueToMemory(key, value, main);
-            sizeMain++;
-            removeFileFromSystem(key);
-        }else{
-            // супер медленный способ найти последний эелемент
-            K oldKey = (K) main.toArray()[main.size()-1];
-            if(oldKey != null){
-                main.remove(oldKey);
-                wordsToMemory.remove(oldKey);
-                sizeMain--;
+        synchronized (this) {
+            main.add(key);
+            if (maxSizeMain > sizeMain) {
                 putValueToMemory(key, value, main);
                 sizeMain++;
                 removeFileFromSystem(key);
+            } else {
+                // супер медленный способ найти последний эелемент
+                K oldKey = (K) main.toArray()[main.size() - 1];
+                if (oldKey != null) {
+                    main.remove(oldKey);
+                    wordsToMemory.remove(oldKey);
+                    sizeMain--;
+                    putValueToMemory(key, value, main);
+                    sizeMain++;
+                    removeFileFromSystem(key);
+                }
             }
         }
-
     }
 
-    //удаление файла
+    /**
+     * remove file from files system
+     * @param key
+     */
     private void removeFileFromSystem(K key){
         try {
             new File(pathToCacheFiles + key).delete();
@@ -164,7 +177,10 @@ public class Cache<K, V> {
         }
     }
 
-    //сереализация объекта в файл
+    /**
+     * save file in files system
+     * @param key
+     */
     private void addFileToSystem(K key){
         synchronized (this){
             if(maxSizeOut > sizeOut){
@@ -189,19 +205,23 @@ public class Cache<K, V> {
         }
     }
 
-    //десериализация объекта из файла
+    /**
+     * get file from files system
+     * @param key
+     * @return V
+     */
     private V getValueFromFile(K key){
         File file = new File(pathToCacheFiles + key);
+        V value = null;
         try(FileInputStream fis = new FileInputStream(file);
             ObjectInputStream ois = new ObjectInputStream(fis)){
-            V value = (V) ois.readObject();
-            return value;
+            value = (V) ois.readObject();
         }catch(IOException e){
             e.printStackTrace();
         } catch (ClassNotFoundException e) {
             e.printStackTrace();
         }
-        return null;
+        return value;
     }
 
 
